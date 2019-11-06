@@ -19,14 +19,11 @@ func handlePanic(w http.ResponseWriter, r *http.Request) {
 
 	defer func() {
 		if r := recover(); r != nil {
+			trace := formatStackTrace(string(debug.Stack()))
 
-			trace := string(debug.Stack())
-
-			trace = formatStackTrace(trace)
-
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Header().Set("content-type", "application/json")
 			fmt.Fprintf(w, "<h1>panic: %v</h1><pre>%s</pre>", r, trace)
-
-			// //details := fmt.Sprintf("path : %q line : %q", str1[:len(str1)-1], str2[4:])
 
 		}
 	}()
@@ -41,11 +38,11 @@ func formatStackTrace(trace string) string {
 	trace = ""
 	for _, v := range slice {
 		if strings.Contains(v, ".go:") {
-			re := regexp.MustCompile(`(.*?).go:`)
-			str1 := []byte(re.FindString(v))
+			re1 := regexp.MustCompile(`(.*?).go:`)
+			str1 := []byte(re1.FindString(v))
 
-			re = regexp.MustCompile(`.go:([0-9]+) `)
-			str2 := []byte(strings.TrimSpace(re.FindString(v)))
+			re2 := regexp.MustCompile(`.go:([0-9]+)`)
+			str2 := []byte(strings.TrimSpace(re2.FindString(v)))
 
 			filename := strings.TrimSpace(string(str1[:len(str1)-1]))
 			line := string(str2[4:])
@@ -71,7 +68,8 @@ func handleDebug(w http.ResponseWriter, r *http.Request) {
 
 	file, err := os.Open(filename)
 	if err != nil {
-		log.Fatal(err)
+		http.Error(w, "Invalid file path", http.StatusInternalServerError)
+		return
 	}
 	defer file.Close()
 
@@ -85,11 +83,16 @@ func handleDebug(w http.ResponseWriter, r *http.Request) {
 	_ = quick.Highlight(w, details, "go", "html", "github")
 }
 
-func main() {
+func handlers() http.Handler {
 	router := mux.NewRouter()
 
 	router.HandleFunc("/panic", handlePanic).Methods("GET")
 	router.HandleFunc("/debug", handleDebug).Methods("GET")
 
+	return router
+}
+
+func main() {
+	router := handlers()
 	log.Fatal(http.ListenAndServe(":8000", router))
 }
